@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 // for debugging with git cloned jslib-html5-camera-photo
@@ -20,191 +20,180 @@ import './styles/camera.css';
 /*
 Inspiration : https://www.html5rocks.com/en/tutorials/getusermedia/intro/
 */
-class Camera extends React.Component {
-  constructor (props, context) {
-    super(props, context);
-    this.libCameraPhoto = null;
-    this.showVideoTimeoutId = null;
-    this.videoRef = React.createRef();
-    this.state = {
-      dataUri: '',
-      isShowVideo: true,
-      isCameraStarted: false,
-      startCameraErrorMsg: ''
-    };
-    this.handleTakePhoto = this.handleTakePhoto.bind(this);
-    this.clearShowVideoTimeout = this.clearShowVideoTimeout.bind(this);
-  }
 
-  componentDidMount () {
-    this.libCameraPhoto = new LibCameraPhoto(this.videoRef.current);
-    const {idealFacingMode, idealResolution, isMaxResolution} = this.props;
-    if (isMaxResolution) {
-      this.startCameraMaxResolution(idealFacingMode);
+let libCameraPhoto = null;
+let showVideoTimeoutId = null;
+
+function Camera(props) {
+
+  const [dataUri, setDataUri] = useState('');
+  const [isShowVideo, setIsShowVideo] = useState(true);
+  const [isCameraStarted, setIsCameraStarted] = useState(false);
+  const [startCameraErrorMsg, setStartCameraErrorMsg] = useState('');
+
+  let videoRef = useRef(null);
+
+  // component will mount
+  // TODO check ...
+  useEffect (()=>{
+    restartCamera(props.idealFacingMode, props.idealResolution, props.isMaxResolution);
+  }, [props.idealFacingMode, props.idealResolution, props.isMaxResolution]);
+
+  // Component has mount
+  useEffect (()=>{
+    libCameraPhoto = new LibCameraPhoto(videoRef.current);
+    if (props.isMaxResolution) {
+      startCameraMaxResolution(props.idealFacingMode);
     } else {
-      this.startCameraIdealResolution(idealFacingMode, idealResolution);
+      startCameraIdealResolution(props.idealFacingMode, props.idealResolution);
+    }
+
+    // componentWillUnmount
+    return () => {
+      clearShowVideoTimeout();
+      const isComponentWillUnmount = true;
+      stopCamera(isComponentWillUnmount)
+        .catch((error) => {
+          printCameraInfo(error.message);
+        });
+    }
+  }, []);
+
+  function clearShowVideoTimeout () {
+    if (showVideoTimeoutId) {
+      clearTimeout(showVideoTimeoutId);
     }
   }
 
-  // eslint-disable-next-line
-  UNSAFE_componentWillReceiveProps (nextProps) {
-    if (isDynamicPropsUpdate(this.props, nextProps)) {
-      const {idealFacingMode, idealResolution, isMaxResolution} = nextProps;
-      this.restartCamera(idealFacingMode, idealResolution, isMaxResolution);
-    }
-  }
-
-  componentWillUnmount () {
-    this.clearShowVideoTimeout();
-    const isComponentWillUnmount = true;
-    this.stopCamera(isComponentWillUnmount)
-      .catch((error) => {
-        printCameraInfo(error.message);
-      });
-  }
-
-  clearShowVideoTimeout () {
-    if (this.showVideoTimeoutId) {
-      clearTimeout(this.showVideoTimeoutId);
-    }
-  }
-
-  restartCamera (idealFacingMode, idealResolution, isMaxResolution) {
-    this.stopCamera()
+  function restartCamera (idealFacingMode, idealResolution, isMaxResolution) {
+    stopCamera()
       .then()
       .catch((error) => {
         printCameraInfo(error.message);
       })
       .then(() => {
         if (isMaxResolution) {
-          this.startCameraMaxResolution(idealFacingMode);
+          startCameraMaxResolution(idealFacingMode);
         } else {
-          this.startCameraIdealResolution(idealFacingMode, idealResolution);
+          startCameraIdealResolution(idealFacingMode, idealResolution);
         }
       });
   }
 
-  startCamera (promiseStartCamera) {
+  function startCamera (promiseStartCamera) {
     promiseStartCamera
       .then((stream) => {
-        this.setState({
-          isCameraStarted: true,
-          startCameraErrorMsg: ''
-        });
-        if (typeof this.props.onCameraStart === 'function') {
-          this.props.onCameraStart(stream);
+        setIsCameraStarted(true);
+        setStartCameraErrorMsg('');
+        if (typeof props.onCameraStart === 'function') {
+          props.onCameraStart(stream);
         }
       })
       .catch((error) => {
-        this.setState({
-          startCameraErrorMsg: `${error.name} ${error.message}`
-        });
-        if (typeof this.props.onCameraError === 'function') {
-          this.props.onCameraError(error);
+        setStartCameraErrorMsg(`${error.name} ${error.message}`);
+        if (typeof props.onCameraError === 'function') {
+          props.onCameraError(error);
         }
       });
   }
 
-  startCameraIdealResolution (idealFacingMode, idealResolution) {
+  function startCameraIdealResolution (idealFacingMode, idealResolution) {
     let promiseStartCamera =
-        this.libCameraPhoto.startCamera(idealFacingMode, idealResolution);
-    this.startCamera(promiseStartCamera);
+        libCameraPhoto.startCamera(idealFacingMode, idealResolution);
+    startCamera(promiseStartCamera);
   }
 
-  startCameraMaxResolution (idealFacingMode) {
+  function startCameraMaxResolution (idealFacingMode) {
     let promiseStartCamera =
-        this.libCameraPhoto.startCameraMaxResolution(idealFacingMode);
-    this.startCamera(promiseStartCamera);
+        libCameraPhoto.startCameraMaxResolution(idealFacingMode);
+    startCamera(promiseStartCamera);
   }
 
-  stopCamera (isComponentWillUnmount = false) {
+  function stopCamera (isComponentWillUnmount = false) {
     return new Promise((resolve, reject) => {
-      this.libCameraPhoto.stopCamera()
+      libCameraPhoto.stopCamera()
         .then(() => {
           if (!isComponentWillUnmount) {
-            this.setState({ isCameraStarted: false });
+            setIsCameraStarted(false);
           }
-          if (typeof this.props.onCameraStop === 'function') {
-            this.props.onCameraStop();
+          if (typeof props.onCameraStop === 'function') {
+            props.onCameraStop();
           }
           resolve();
         })
         .catch((error) => {
-          if (typeof this.props.onCameraError === 'function') {
-            this.props.onCameraError(error);
+          if (typeof props.onCameraError === 'function') {
+            props.onCameraError(error);
           }
           reject(error);
         });
     });
   }
 
-  handleTakePhoto () {
-    const {sizeFactor, imageType, imageCompression, isImageMirror, isSilentMode} = this.props;
-    const configDataUri = { sizeFactor, imageType, imageCompression, isImageMirror };
+  function handleTakePhoto () {
 
-    if (!isSilentMode) {
+    const configDataUri = {
+      sizeFactor: props.sizeFactor,
+      imageType: props.imageType,
+      imageCompression: props.imageCompression,
+      isImageMirror: props.isImageMirror
+    };
+
+    let dataUri = libCameraPhoto.getDataUri(configDataUri);
+
+    if (!props.isSilentMode) {
       playClickAudio();
     }
 
-    let dataUri = this.libCameraPhoto.getDataUri(configDataUri);
-
-    if (this.props.onTakePhoto) {
-      this.props.onTakePhoto(dataUri);
+    if (typeof props.onTakePhoto === 'function') {
+      props.onTakePhoto(dataUri);
     }
 
-    this.setState({
-      dataUri,
-      isShowVideo: false
-    });
+    setDataUri(dataUri);
+    setIsShowVideo(false);
 
-    this.clearShowVideoTimeout();
-    this.showVideoTimeoutId = setTimeout(() => {
-      this.setState({
-        isShowVideo: true
-      });
+    clearShowVideoTimeout();
+    showVideoTimeoutId = setTimeout(() => {
+      setIsShowVideo(true);
 
-      if (this.props.onTakePhotoAnimationDone) {
-        this.props.onTakePhotoAnimationDone(dataUri);
+      if (typeof props.onTakePhotoAnimationDone === 'function') {
+        onTakePhotoAnimationDone(dataUri);
       }
     }, 900);
   }
 
-  render () {
-    const {isImageMirror, isDisplayStartCameraError, isFullscreen} = this.props;
+  let videoStyles = getVideoStyles(isShowVideo, props.isImageMirror);
+  let showHideImgStyle = getShowHideStyle(!isShowVideo);
 
-    let videoStyles = getVideoStyles(this.state.isShowVideo, isImageMirror);
-    let showHideImgStyle = getShowHideStyle(!this.state.isShowVideo);
-
-    let classNameFullscreen = isFullscreen ? 'react-html5-camera-photo-fullscreen' : '';
-    return (
-      <div className={'react-html5-camera-photo ' + classNameFullscreen}>
-        <DisplayError
-          cssClass={'display-error'}
-          isDisplayError={isDisplayStartCameraError}
-          errorMsg={this.state.startCameraErrorMsg}
-        />
-        <WhiteFlash
-          isShowWhiteFlash={!this.state.isShowVideo}
-        />
-        <img
-          style={showHideImgStyle}
-          alt="camera"
-          src={this.state.dataUri}
-        />
-        <video
-          style={videoStyles}
-          ref={this.videoRef}
-          autoPlay={true}
-          muted="muted"
-          playsInline
-        />
-        <CircleButton
-          isClicked={!this.state.isShowVideo}
-          onClick={this.handleTakePhoto}
-        />
-      </div>
-    );
-  }
+  let classNameFullscreen = props.isFullscreen ? 'react-html5-camera-photo-fullscreen' : '';
+  return (
+    <div className={'react-html5-camera-photo ' + classNameFullscreen}>
+      <DisplayError
+        cssClass={'display-error'}
+        isDisplayError={props.isDisplayStartCameraError}
+        errorMsg={startCameraErrorMsg}
+      />
+      <WhiteFlash
+        isShowWhiteFlash={!isShowVideo}
+      />
+      <img
+        style={showHideImgStyle}
+        alt="camera"
+        src={dataUri}
+      />
+      <video
+        style={videoStyles}
+        ref={videoRef}
+        autoPlay={true}
+        muted="muted"
+        playsInline
+      />
+      <CircleButton
+        isClicked={!isShowVideo}
+        onClick={handleTakePhoto}
+      />
+    </div>
+  );
 }
 
 export {
